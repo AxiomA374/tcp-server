@@ -1,12 +1,11 @@
 #include "Server.hpp"
-#include <asm-generic/socket.h>
-#include <cstdint>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <iostream>
 #include <netinet/in.h>
 #include <cerrno>
 #include <cstring>
+
 using namespace std;
 
 Server::Server(uint16_t port) : port{port} {}
@@ -56,6 +55,7 @@ bool Server::start() {
         cout << "Ошибка accept\n";
         return false;
     }
+    client_handler(client_fd);
     close(client_fd);
     return true;
 }

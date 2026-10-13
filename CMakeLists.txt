@@ -7,6 +7,7 @@ add_executable(
     tcp-server
     main.cpp
     src/Server.cpp
+    src/Client_handler.cpp
 )
 
 target_compile_features(tcp-server PRIVATE cxx_std_20)
