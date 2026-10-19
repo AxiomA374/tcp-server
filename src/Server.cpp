@@ -12,6 +12,11 @@ Server::~Server() {
     if (server_fd >= 0) {
         close(server_fd);                       // Системный вызов Linux, закрывающий файловый дескриптор
     }
+    for (auto& th : threads) {
+        if (th.joinable()) {
+            th.join();
+        }
+    }
 }
 
 bool Server::start() {
@@ -54,8 +59,18 @@ bool Server::start() {
             std::cout << "Ошибка accept: " << strerror(errno) << "\n";
             continue;
         }
-        client_handler(client_fd);
-        close(client_fd);
+        if (active_clients < max_clients) {
+            active_clients++;
+            // Потоковая обработка клиентов
+            threads.emplace_back([this, client_fd] {
+                client_handler(client_fd);
+                close(client_fd);
+                active_clients--;
+            });
+        } else {
+            log("Достигнут лимит по количеству пользователей");
+            close(client_fd);
+        }
     };
     return true;
 }
