@@ -6,9 +6,7 @@
 #include <cerrno>
 #include <cstring>
 
-using namespace std;
-
-Server::Server(uint16_t port) : port{port} {}
+Server::Server(uint16_t port, bool debug) : port{port} , debug_mode(debug){}
 
 Server::~Server() {
     if (server_fd >= 0) {
@@ -19,13 +17,13 @@ Server::~Server() {
 bool Server::start() {
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
-        cout << "Ошибка создания сокета\n";
+        std::cout << "Ошибка создания сокета\n";
         return false;
     }
 
     int opt = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        cout << "Предупреждение: не удалось выставить SO_REUSEADDR\n";
+        std::cout << "Предупреждение: не удалось выставить SO_REUSEADDR\n";
     }
 
     sockaddr_in server_addr {};                 // Обнуление структуры
@@ -35,27 +33,29 @@ bool Server::start() {
 
     int bind_res = bind(server_fd, reinterpret_cast<sockaddr*>(&server_addr), sizeof(server_addr));
     if (bind_res < 0) {
-        cout << "Ошибка привязки сокета к порту: " << strerror(errno) << "\n";
+        std::cout << "Ошибка привязки сокета к порту: " << strerror(errno) << "\n";
         return false;
     }
 
     int listen_res = listen(server_fd, 8);
     if (listen_res < 0) {
-        cout << "Ошибка перевода сокета в режим прослушивания\n";
+        std::cout << "Ошибка перевода сокета в режим прослушивания\n";
         return false;
     }
 
-    cout << "Сервер слушает на " << port << " порту\n";
+    std::cout << "Сервер слушает на " << port << " порту\n";
 
-    sockaddr_in client_addr {};
-    socklen_t client_len = sizeof(client_addr);
+    while (true) {
+        sockaddr_in client_addr {};
+        socklen_t client_len = sizeof(client_addr);
 
-    int client_fd = accept(server_fd, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
-    if (client_fd < 0) {
-        cout << "Ошибка accept\n";
-        return false;
-    }
-    client_handler(client_fd);
-    close(client_fd);
+        int client_fd = accept(server_fd, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
+        if (client_fd < 0) {
+            std::cout << "Ошибка accept: " << strerror(errno) << "\n";
+            continue;
+        }
+        client_handler(client_fd);
+        close(client_fd);
+    };
     return true;
 }
