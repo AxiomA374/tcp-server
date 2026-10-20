@@ -1,21 +1,18 @@
 #include "Server.hpp"
+#include <sys/select.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <iostream>
 #include <netinet/in.h>
 #include <cerrno>
 #include <cstring>
+#include <fcntl.h>
 
 Server::Server(uint16_t port, bool debug) : port{port} , debug_mode(debug){}
 
 Server::~Server() {
     if (server_fd >= 0) {
         close(server_fd);                       // Системный вызов Linux, закрывающий файловый дескриптор
-    }
-    for (auto& th : threads) {
-        if (th.joinable()) {
-            th.join();
-        }
     }
 }
 
@@ -50,27 +47,60 @@ bool Server::start() {
 
     std::cout << "Сервер слушает на " << port << " порту\n";
 
+    // Перевод сокета из блок. режима в неблок.
+    int server_flags = fcntl(server_fd, F_GETFL, 0);
+    fcntl(server_fd, F_SETFL, server_flags | O_NONBLOCK);
+    FD_ZERO(&master_set);                               // Убедились что все 1024 бита выключены
+    FD_SET(server_fd, &master_set);                     // Регистрация сокета
+    max_fd = server_fd;                                 // Задали верхнюю границу сокета
+
     while (true) {
         sockaddr_in client_addr {};
         socklen_t client_len = sizeof(client_addr);
 
-        int client_fd = accept(server_fd, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
-        if (client_fd < 0) {
-            std::cout << "Ошибка accept: " << strerror(errno) << "\n";
-            continue;
+        fd_set working_set = master_set;
+        int activity = select(max_fd+1, &working_set, nullptr, nullptr, nullptr);    // (if (activity < 0) то системная ошибка)
+        if (activity < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            std::cout << "Ошибка select: " << strerror(errno) << "\n";
+            break;
         }
-        if (active_clients < max_clients) {
-            active_clients++;
-            // Потоковая обработка клиентов
-            threads.emplace_back([this, client_fd] {
-                client_handler(client_fd);
-                close(client_fd);
-                active_clients--;
-            });
-        } else {
-            log("Достигнут лимит по количеству пользователей");
-            close(client_fd);
+
+        for (int fd = 0; fd <= max_fd; fd++) {
+            if (FD_ISSET(fd, &working_set)) {
+                if (fd == server_fd) {                  // Новый клиент
+                    int client_fd = accept(server_fd, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
+
+                    if (client_fd < 0) {
+                        std::cout << "Ошибка accept: " << strerror(errno) << "\n";
+                        continue;
+                    }
+
+                    if (current_clients >= max_clients) {
+                        std::cout << "Превышено количество дескрипторов!\n";
+                        close(client_fd);
+                        continue;
+                    }
+
+                    current_clients++;
+
+                    // Клиентский сокет не блокирующий
+                    int client_flags = fcntl(client_fd, F_GETFL, 0);
+                    fcntl(client_fd, F_SETFL, client_flags | O_NONBLOCK);
+
+                    // Эталонная маска
+                    FD_SET(client_fd, &master_set);
+                    if (max_fd < client_fd) max_fd = client_fd;
+                } else {                                // Старый клиент
+                    if (!client_handler(fd)) {
+                        FD_CLR(fd, &master_set);               // Заходим в client_handler
+                        current_clients--;
+                    }
+                }
+            }
         }
-    };
+    }
     return true;
 }

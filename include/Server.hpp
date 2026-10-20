@@ -1,24 +1,21 @@
 #pragma once
-#include <atomic>
 #include <cstdint>
 #include <iostream>
-#include <thread>
-#include <vector>
-#include <mutex>
+#include <sys/select.h>
 
 class Server {
 private:
-    uint16_t port{8080};            // Стандартный порт, если не задан явно
-    int server_fd{-1};              // Сокет еще не создан системой
-    void client_handler(int client_fd);
+    uint16_t port {8080};            // Стандартный порт, если не задан явно
+    int server_fd {-1};              // Сокет еще не создан системой
+    bool client_handler(int client_fd);
 
-    bool debug_mode{false};
+    bool debug_mode {false};
 
-    // Массив потоков
-    std::vector<std::thread> threads {};
+    size_t current_clients {0};
+    const size_t max_clients {64};
 
-    const size_t max_clients{64};
-    std::atomic<uint16_t> active_clients{0};                                   // Не более 65535 подключений одновременно
+    fd_set master_set {};            // Битовая маска для пользовательских дескрипторов
+    int max_fd {-1};                 // Верхняя граница дескрипторов по умолчанию (if (!user) = -1)
 public:
     explicit Server(
         uint16_t port = 8080,
